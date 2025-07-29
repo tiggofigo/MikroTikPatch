@@ -86,11 +86,11 @@ jobs:
         echo $(uname -a)
         LATEST_VERSION=${{ github.event.inputs.version }}
         if [ -z  "$_LATEST_VERSION" ]; then
-          LATEST_VERSION=$(wget -nv -O - https://mirror-gw.elastis.id/routeros/6.47.9/index.html${{ matrix.channel }} | cut -d ' ' -f1)
+          LATEST_VERSION=$(wget -nv -O - https://mirror-gw.elastis.id/routeros/6.47.9/index.html{{ matrix.channel }} | cut -d ' ' -f1)
         fi
         echo Latest Version:$LATEST_VERSION
         if [ "${{ github.event_name }}" == "schedule" ]; then
-          _LATEST_VERSION=$(wget -nv -O - https://mirror-gw.elastis.id/routeros/6.47.9/index.html${{ env.CUSTOM_UPGRADE_URL }}/routeros/NEWEST6.${{ matrix.channel }}  | cut -d ' ' -f1)
+          _LATEST_VERSION=$(wget -nv -O - https://mirror-gw.elastis.id/routeros/6.47.9/index.html{{ env.CUSTOM_UPGRADE_URL }}/routeros/NEWEST6.${{ matrix.channel }}  | cut -d ' ' -f1)
           if [ "$_LATEST_VERSION" == "$LATEST_VERSION" ]; then
             echo "No new version found"
             echo "has_new_version=false" >> $GITHUB_OUTPUT
