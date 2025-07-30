@@ -1,130 +1,58 @@
-name: Patch Mikrotik RouterOS 6.x
+name: Patch RouterOS 6.x (Stable Only)
 
 on:
   workflow_dispatch:
     inputs:
-      latest:
-        description: 'Patch Latest Version'
-        type: boolean
-        default: true
-      custom:
-        description: 'Patch Custom Version'
-        type: string
-        default: ''
-        required: false
-
-permissions:
-  contents: write
-
-env:
-  CUSTOM_LICENSE_PRIVATE_KEY: ${{ secrets.CUSTOM_LICENSE_PRIVATE_KEY }}
-  CUSTOM_LICENSE_PUBLIC_KEY: ${{ secrets.CUSTOM_LICENSE_PUBLIC_KEY }}
-  CUSTOM_NPK_SIGN_PRIVATE_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PRIVATE_KEY }}
-  CUSTOM_NPK_SIGN_PUBLIC_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PUBLIC_KEY }}
-  CUSTOM_CLOUD_PUBLIC_KEY: ${{ secrets.CUSTOM_CLOUD_PUBLIC_KEY }}
-  MIKRO_LICENSE_PUBLIC_KEY: ${{ secrets.MIKRO_LICENSE_PUBLIC_KEY }}
-  MIKRO_NPK_SIGN_PUBLIC_LKEY: ${{ secrets.MIKRO_NPK_SIGN_PUBLIC_LKEY }}
-  MIKRO_CLOUD_PUBLIC_KEY: ${{ secrets.MIKRO_CLOUD_PUBLIC_KEY }}
-  MIKRO_LICENCE_URL: ${{ secrets.MIKRO_LICENCE_URL }}
-  CUSTOM_LICENCE_URL: ${{ secrets.CUSTOM_LICENCE_URL }}
-  MIKRO_UPGRADE_URL: ${{ secrets.MIKRO_UPGRADE_URL }}
-  CUSTOM_UPGRADE_URL: ${{ secrets.CUSTOM_UPGRADE_URL }}
-  MIKRO_RENEW_URL: ${{ secrets.MIKRO_RENEW_URL }}
-  CUSTOM_RENEW_URL: ${{ secrets.CUSTOM_RENEW_URL }}
-  MIKRO_CLOUD_URL: ${{ secrets.MIKRO_CLOUD_URL }}
-  CUSTOM_CLOUD_URL: ${{ secrets.CUSTOM_CLOUD_URL }}
-  API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
-  API_KEY: ${{ secrets.API_KEY }}
+      version:
+        description: 'RouterOS version (e.g. 6.47.9)'
+        required: true
+        default: '6.47.9'
 
 jobs:
-  Set_Runner:
-    runs-on: ubuntu-22.04
-    outputs:
-      BUILD_TIME: ${{ steps.set_buildtime.outputs.BUILD_TIME }}
-    steps:
-      - name: Set build time
-        id: set_buildtime
-        run: echo "BUILD_TIME=$(date +'%s')" >> $GITHUB_OUTPUT
-
-  PreparePatch:
-    runs-on: ubuntu-22.04
-    needs: Set_Runner
-    strategy:
-      matrix:
-        channel: [long-term,stable]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Get latest routeros version
-        id: get_latest
-        run: |
-          if [ "${{ inputs.latest }}" != "false" ]; then
-            LATEST_VERSION=$(wget -nv -O - https://www.mikrotik-software.de/downloads/routeros/NEWEST6.${{ matrix.channel }} | cut -d ' ' -f1)
-          else
-            LATEST_VERSION=${{ inputs.custom }}
-          fi
-          if [ -z "$LATEST_VERSION" ]; then
-            exit 1
-          fi
-          BUILD_TIME=${{ needs.Set_Runner.outputs.BUILD_TIME }}
-          echo "LATEST_VERSION=${LATEST_VERSION}" >> $GITHUB_OUTPUT
-          echo "LATEST_VERSION=${LATEST_VERSION}" >> $GITHUB_ENV
-          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
-          echo "{\"LATEST_VERSION\":\"$LATEST_VERSION\" ,\"IS_LATEST\":\"true\", \"BUILD_TIME\":\"$BUILD_TIME\"}" > ./version_info-${{ matrix.channel }}
-
-  RunPatch:
-    needs: PreparePatch
+  patch:
     runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      matrix:
-        arch: [mmips]
-        channel: [long-term,stable]
+    env:
+      MIKRO_NPK_SIGN_PUBLIC_KEY: ${{ secrets.MIKRO_NPK_SIGN_PUBLIC_KEY }}
+      MIKRO_LICENSE_PUBLIC_KEY: ${{ secrets.MIKRO_LICENSE_PUBLIC_KEY }}
+      CUSTOM_NPK_SIGN_PRIVATE_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PRIVATE_KEY }}
+      CUSTOM_NPK_SIGN_PUBLIC_KEY: ${{ secrets.CUSTOM_NPK_SIGN_PUBLIC_KEY }}
+      CUSTOM_LICENSE_PRIVATE_KEY: ${{ secrets.CUSTOM_LICENSE_PRIVATE_KEY }}
+      CUSTOM_LICENSE_PUBLIC_KEY: ${{ secrets.CUSTOM_LICENSE_PUBLIC_KEY }}
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.x'
 
-      - name: Download version info
-        uses: actions/download-artifact@v4
-        with:
-          name: version_info-${{ matrix.channel }}
-          path: .
-
-      - name: Prepare variables
+      - name: Install requirements
         run: |
-          version_info=$(cat version_info-${{ matrix.channel }})
-          LATEST_VERSION=$(echo $version_info | jq -r '.LATEST_VERSION')
-          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools
+          pip install -r requirements.txt
 
-      - name: Download NPK files
+      - name: Create workspace
         run: |
-          ARCH="-${{ matrix.arch }}"
-          sudo wget -nv -O routeros$ARCH-$LATEST_VERSION.npk https://www.mikrotik-software.de/downloads/routeros/$LATEST_VERSION/routeros$ARCH-$LATEST_VERSION.npk
-          sudo wget -nv -O all_packages$ARCH-$LATEST_VERSION.zip https://www.mikrotik-software.de/downloads/routeros/$LATEST_VERSION/all_packages$ARCH-$LATEST_VERSION.zip
+          mkdir -p build downloads
 
-      - name: Patch and Sign NPK files
+      - name: Download routeros-mmips-${{ github.event.inputs.version }}.npk (stable)
         run: |
-          sudo unzip all_packages$ARCH-$LATEST_VERSION.zip -d all_packages
-          for file in all_packages/*.npk; do
-            sudo -E python3 npk.py sign "$file" "$file"
-          done
-          sudo -E python3 patch.py npk routeros$ARCH-$LATEST_VERSION.npk
+          curl -L -o downloads/routeros-mmips-${{ github.event.inputs.version }}.npk https://www.mikrotik-software.de/downloads/routeros/${{ github.event.inputs.version }}/stable/mmips/routeros-mmips-${{ github.event.inputs.version }}.npk
 
-      - name: Upload patched NPKs
+      - name: Patch NPK
+        run: |
+          python3 patch.py npk downloads/routeros-mmips-${{ github.event.inputs.version }}.npk -O build/routeros-mmips-${{ github.event.inputs.version }}-patched.npk
+
+      - name: Zip patched package
+        run: |
+          cd build
+          zip routeros-mmips-${{ github.event.inputs.version }}-patched.zip routeros-mmips-${{ github.event.inputs.version }}-patched.npk
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: patched-npk-${{ matrix.arch }}-${{ env.LATEST_VERSION }}
-          path: |
-            routeros${{ matrix.arch }}-${{ env.LATEST_VERSION }}.npk
-            all_packages/*.npk
+          name: routeros-mmips-${{ github.event.inputs.version }}-patched
+          path: build/routeros-mmips-${{ github.event.inputs.version }}-patched.zip
